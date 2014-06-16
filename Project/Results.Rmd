@@ -1,0 +1,116 @@
+Impact of transmission type on Miles per Gallon
+==============================================================
+
+Executive Summary
+-----------------
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring web pages (click the **Help** toolbar button for more details on using R Markdown).
+
+When you click the **Knit HTML** button a web page will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+Data exploration
+----------------
+From the structure of the data frame, is clear that all variables are store in numeric format. However cyl, vs, am, gear and carb could be treated as factor variables.
+```{r}
+str(mtcars)
+```
+
+
+Looking at the scatterplots of paired variables (see Fig. 1 of the appendix), it's clear that many variables are correlated with each other, thus generating potential anomalies in case of fitting a linear model with only **am** as dependent variable.
+```{r eval=FALSE}
+pairs(mtcars,panel=panel.smooth,main="\"mtcars\" dataset, Numeric Variables")
+```
+
+To better manage data and labels, **txType** variable is generated from **am** variable and is transformed to a factor with readable levels:
+```{r}
+txType <- as.factor(mtcars$am)
+levels(txType) <- c("automatic","manual")
+```
+
+
+
+Fitting linear models
+---------------------
+Looking at the distribution of **MPG** depending on the type of transmission, it is clearly visible that manual trasmission has higher values for **MPG** (see Fig.1 of the appendix). Thus at a first glance **manual transmission is better for MPG**.
+```{r eval=FALSE}
+boxplot(mtcars$mpg~txType,col="blue",main="Fig. 2 - MPG by type of transmission",
+        xlab="Transmission type",ylab="MPG, Miles/(US) gallon")
+```
+
+
+Let' fit a univariate linear model to quantify how different is MPG between automatic and manual transmission:
+
+```{r}
+fit <- lm(mtcars$mpg~txType)
+summary(fit)
+```
+The model seems quite good: p-value of the modelan coefficients are both significant and it is possible to state that: **holding all other variables constant**, swithcing from automatic to manual transmission, one can travel `r round(fit$coefficients[2],2)` miles more per gallon. Where the **average MPG** for automatic and manual transmission are respectively `r round(fit$coefficients[1],2)` and `r round(fit$coefficients[2]+fit$coefficients[1],2)`. **However**, when checking residuals (see Fig. 3 in the appendix), it's clear that residuals suffer from an increase in variance for observations having manual transmission (Fig. 3.3).
+
+To try to get rid of this issue, we can adjust our univariate model. To choose which is the best variable to add we can recursively define all the bivariate models with the remaining variables:
+```{r}
+columns <- colnames(mtcars)
+columns <- columns[!(columns %in% c("mpg","am"))]
+formulas <- paste0("mtcars$mpg~txType+",columns)
+```
+
+Fit all the models:
+```{r}
+numModels <- length(formulas)
+bivariateFit <- lapply(1:numModels, function(x) lm(formula=formulas[x],mtcars))
+```
+
+And choose among them the one that, compared with the univariate model **using anova method**, yields the lowest p-value:
+```{r}
+pvalues <- sapply(1:numModels, function(x) anova(fit,bivariateFit[[x]])[2,6])
+bestBivariate <- bivariateFit[[which.min(pvalues)]]
+summary(bestBivariate)
+```
+
+Selected model introduces **hp** as dependent variabile, which makes a lot of sense since we are trying to analyse **MPG** consumption.
+Now, looking at the diagnostics plot (Fig. 4) it is possible to see that variance is more regularly distributed.
+
+
+
+Appendix
+----------
+```{r fig.width=11, fig.height=11, echo=FALSE}
+pairs(mtcars,panel=panel.smooth,main="Fig. 1 - \"mtcars\" dataset, Variables scatterplots")
+```
+
+```{r echo=FALSE}
+boxplot(mtcars$mpg~txType,col="blue",main="Fig. 2 - MPG by type of transmission",
+        xlab="Transmission type",ylab="MPG, Miles/(US) gallon")
+```
+
+
+
+```{r fig.width=10, fig.height=3.33, echo=FALSE}
+par(mfrow=c(1,3),oma=c(0,0,5,0))
+x <- seq(-3,3,length=100)
+plot(x,dnorm(x,0,1),col="red",t="l",main="3.1 - Distribution of normalized residuals")
+lines(density(scale(resid(fit))))
+qqnorm(scale(resid(fit)),main="3.2 - Q-Q plot of standardized residuals")
+abline(0,1)
+plot(txType,scale(resid(fit)),col="red",main="3.3 - Standardized Residuals \nby transmission type")
+title("Fig. 3 - Analysis of residuals", outer=TRUE)
+```
+
+
+```{r fig.width=10, fig.height=3.33, echo=FALSE}
+par(mfrow=c(1,3),oma=c(0,0,5,0))
+x <- seq(-3,3,length=100)
+plot(x,dnorm(x,0,1),col="red",t="l",main="3.1 - Distribution of normalized residuals")
+lines(density(scale(resid(bestBivariate))))
+qqnorm(scale(resid(bestBivariate)),main="3.2 - Q-Q plot of standardized residuals")
+abline(0,1)
+plot(txType,scale(resid(bestBivariate)),col="red",main="3.3 - Standardized Residuals \nby transmission type")
+title("Fig. 3 - Analysis of residuals", outer=TRUE)
+```
+
+
+```{r}
+plot(mtcars$hp,mtcars$mpg,col=txType,pch=19,ylab="MPG, Miles/(US) gallon",xlab="Gross Horsepower",main="Fig. 5 - mpg ~ transmission type + horsepower")
+abline(bestBivariate$coefficients[1],bestBivariate$coefficients[3],lw=2)
+abline(bestBivariate$coefficients[1]+bestBivariate$coefficients[2],bestBivariate$coefficients[3],col="red",lw=2)
+```
